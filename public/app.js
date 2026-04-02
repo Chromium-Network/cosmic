@@ -286,7 +286,7 @@ function renderProfile(el, user) {
       <div class="profile-card">
         <div class="profile-top">
           <div class="profile-avatar-large" id="profileAvatarLarge">
-            ${user.photoURL ? `<img src="${user.photoURL}" />` : initial}
+            ${initial}
           </div>
           <div>
             <div class="profile-name" id="profileDisplayName">${user.displayName || "user"}</div>
@@ -310,6 +310,11 @@ function renderProfile(el, user) {
       const data = doc.data();
       if (data.bio) document.getElementById("profileBio").value = data.bio;
       if (data.username) document.getElementById("profileUsername").value = data.username;
+      const avatar = document.getElementById("profileAvatarLarge");
+      if (avatar) {
+        if (data.photoURL) avatar.innerHTML = `<img src="${data.photoURL}" />`;
+        else avatar.textContent = initial;
+      }
     }
   });
 }
@@ -409,6 +414,37 @@ function updateSidebarUser(user) {
 }
 
 /* ── Chat ──────────────────────────────────────── */
+
+let pendingRoomSwitch = null;
+
+function openPasswordModal(id, name, btn, correctPassword) {
+  pendingRoomSwitch = { id, name, btn, correctPassword };
+  document.getElementById("passwordModalInput").value = "";
+  document.getElementById("passwordModalError").textContent = "";
+  document.getElementById("passwordModalBackdrop").classList.add("open");
+  document.getElementById("passwordModal").classList.add("open");
+  setTimeout(() => document.getElementById("passwordModalInput").focus(), 300);
+}
+
+function closePasswordModal() {
+  document.getElementById("passwordModalBackdrop").classList.remove("open");
+  document.getElementById("passwordModal").classList.remove("open");
+  pendingRoomSwitch = null;
+}
+
+function submitRoomPassword() {
+  if (!pendingRoomSwitch) return;
+  const entered = document.getElementById("passwordModalInput").value;
+  const err = document.getElementById("passwordModalError");
+  if (entered !== pendingRoomSwitch.correctPassword) {
+    err.textContent = "incorrect password, try again.";
+    document.getElementById("passwordModalInput").value = "";
+    return;
+  }
+  closePasswordModal();
+  doSwitchPrivateRoom(pendingRoomSwitch.id, pendingRoomSwitch.name, pendingRoomSwitch.btn);
+}
+
 const rooms = ["general","random","gaming","memes","help"];
 let privateRooms = [];
 let currentRoom = "general";
@@ -529,17 +565,24 @@ const adminBadge = uname === OWNER
   ? `<span style="font-size:0.6rem;background:linear-gradient(135deg,var(--accent),#7c3aed);color:#fff;padding:1px 6px;border-radius:99px;margin-left:4px">admin</span>`
   : "";
 
-  let controls = "";
-  if (isOwnMessage) {
-    controls = `<div class="chat-admin-controls"><button class="chat-admin-btn" onclick="deleteMsg('${currentRoom}','${docId}')">🗑 delete</button></div>`;
-  } else if (currentUserIsAdmin) {
-    controls = `
-      <div class="chat-admin-controls">
-        <button class="chat-admin-btn" onclick="deleteMsg('${currentRoom}','${docId}')">🗑 delete</button>
-        <button class="chat-admin-btn" onclick="showTimeoutMenu('${data.uid}','${escapeHtml(data.username || "")}')">⏱ timeout</button>
-        <button class="chat-admin-btn danger" onclick="banUser('${data.uid}','${escapeHtml(data.username || "")}')">🔨 ban</button>
-      </div>`;
-  }
+let controls = "";
+if (isOwnMessage) {
+  controls = `<div class="chat-admin-controls"><button class="chat-admin-btn" onclick="deleteMsg('${currentRoom}','${docId}')">🗑 delete</button></div>`;
+} else if (isOwner()) {
+  controls = `
+    <div class="chat-admin-controls">
+      <button class="chat-admin-btn" onclick="deleteMsg('${currentRoom}','${docId}')">🗑 delete</button>
+      <button class="chat-admin-btn" onclick="showTimeoutMenu('${data.uid}','${escapeHtml(data.username || "")}')">⏱ timeout</button>
+      <button class="chat-admin-btn danger" onclick="banUser('${data.uid}','${escapeHtml(data.username || "")}')">🔨 ban</button>
+    </div>`;
+} else if (currentUserIsAdmin) {
+  controls = `
+    <div class="chat-admin-controls">
+      <button class="chat-admin-btn" onclick="deleteMsg('${currentRoom}','${docId}')">🗑 delete</button>
+      <button class="chat-admin-btn" onclick="showTimeoutMenu('${data.uid}','${escapeHtml(data.username || "")}')">⏱ timeout</button>
+      <button class="chat-admin-btn danger" onclick="banUser('${data.uid}','${escapeHtml(data.username || "")}')">🔨 ban</button>
+    </div>`;
+}
 
   const msgContent = data.imageData
     ? `<img src="${data.imageData}" class="chat-img" onclick="window.open('${data.imageData}')" />`
@@ -586,12 +629,15 @@ async function sendMessage() {
     ? db.collection("privateRooms").doc(currentRoom).collection("messages")
     : db.collection("chat").doc(currentRoom).collection("messages");
 
-  await ref.add({
-    text, uid: user.uid,
-    username: user.displayName || "anon",
-    photoURL: "",
-    createdAt: firebase.firestore.FieldValue.serverTimestamp()
-  });
+  const userDoc = await db.collection("users").doc(user.uid).get();
+const photoURL = userDoc.exists ? userDoc.data().photoURL || "" : "";
+
+await ref.add({
+  text, uid: user.uid,
+  username: user.displayName || "anon",
+  photoURL,
+  createdAt: firebase.firestore.FieldValue.serverTimestamp()
+});
 }
 
 async function sendImageMessage(input) {
@@ -616,11 +662,15 @@ async function sendImageMessage(input) {
     const ref = isPrivate
       ? db.collection("privateRooms").doc(currentRoom).collection("messages")
       : db.collection("chat").doc(currentRoom).collection("messages");
-    await ref.add({
-      text: "", imageData: e.target.result,
-      uid: user.uid, username: user.displayName || "anon",
-      photoURL: "", createdAt: firebase.firestore.FieldValue.serverTimestamp()
-    });
+const userDoc = await db.collection("users").doc(user.uid).get();
+const photoURL = userDoc.exists ? userDoc.data().photoURL || "" : "";
+
+await ref.add({
+  text: "", imageData: e.target.result,
+  uid: user.uid, username: user.displayName || "anon",
+  photoURL,
+  createdAt: firebase.firestore.FieldValue.serverTimestamp()
+});
   };
   reader.readAsDataURL(file);
   input.value = "";
@@ -687,9 +737,15 @@ async function loadPrivateRooms() {
     .where("members", "array-contains", user.uid)
     .onSnapshot(snap => {
       privateRooms = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      list.innerHTML = privateRooms.map(r =>
-        `<button class="chat-room-btn ${currentRoom===r.id?"active":""}" onclick="switchPrivateRoom('${r.id}','${escapeHtml(r.name)}',this)">${escapeHtml(r.name)}</button>`
-      ).join("");
+      list.innerHTML = privateRooms.map(r => {
+        const canDelete = isOwner() || r.createdBy === user.uid;
+        return `
+          <div style="display:flex;align-items:center;gap:4px">
+            <button class="chat-room-btn" style="flex:1;${currentRoom===r.id?"color:var(--accent)":""}" onclick="switchPrivateRoom('${r.id}','${escapeHtml(r.name)}',this)">${escapeHtml(r.name)}${r.password ? " 🔒" : ""}</button>
+            ${canDelete ? `<button class="chat-admin-btn danger" style="flex-shrink:0;padding:6px 8px" onclick="deletePrivateRoom('${r.id}','${escapeHtml(r.name)}')">🗑</button>` : ""}
+          </div>
+        `;
+      }).join("");
     });
 }
 
@@ -745,11 +801,13 @@ async function submitCreateRoom() {
 async function switchPrivateRoom(id, name, btn) {
   const roomDoc = await db.collection("privateRooms").doc(id).get();
   if (roomDoc.exists && roomDoc.data().password) {
-    const entered = window.prompt(`🔒 "${name}" is password protected. Enter password:`);
-    if (entered !== roomDoc.data().password) {
-      alert("Incorrect password."); return;
-    }
+    openPasswordModal(id, name, btn, roomDoc.data().password);
+    return;
   }
+  doSwitchPrivateRoom(id, name, btn);
+}
+
+function doSwitchPrivateRoom(id, name, btn) {
   currentRoom = id;
   document.querySelectorAll(".chat-room-btn").forEach(b => b.classList.remove("active"));
   if (btn) btn.classList.add("active");
@@ -757,7 +815,6 @@ async function switchPrivateRoom(id, name, btn) {
   if (inp) inp.placeholder = `message ${name}...`;
   listenPrivateRoom(id);
 }
-
 function listenPrivateRoom(roomId) {
   if (chatUnsub) chatUnsub();
   const msgs = document.getElementById("chatMessages");
@@ -809,3 +866,35 @@ frameClose.addEventListener("click", () => {
   frameWrap.classList.remove("open");
   setTimeout(() => { proxyFrame.src = ""; }, 450);
 });
+
+window.deletePrivateRoom = async function(id, name) {
+  if (!isOwner() && privateRooms.find(r => r.id === id)?.createdBy !== auth.currentUser?.uid) return;
+  if (!confirm(`Delete room "${name}"? This cannot be undone.`)) return;
+  const msgs = await db.collection("privateRooms").doc(id).collection("messages").get();
+  const batch = db.batch();
+  msgs.forEach(doc => batch.delete(doc.ref));
+  batch.delete(db.collection("privateRooms").doc(id));
+  await batch.commit();
+  if (currentRoom === id) {
+    currentRoom = "general";
+    listenRoom("general");
+  }
+};
+
+window.deleteMsg = async function(room, docId) {
+  const user = auth.currentUser;
+  if (!user) return;
+  const isPrivate = privateRooms.some(r => r.id === room);
+  const ref = isPrivate
+    ? db.collection("privateRooms").doc(room).collection("messages").doc(docId)
+    : db.collection("chat").doc(room).collection("messages").doc(docId);
+
+  const msgDoc = await ref.get();
+  if (!msgDoc.exists) return;
+  const isOwnMsg = msgDoc.data().uid === user.uid;
+  if (!isOwnMsg && !isAdmin() && !isOwner()) return;
+
+  await ref.delete();
+  const el = document.querySelector(`.chat-message[data-doc-id="${docId}"]`);
+  if (el) { el.style.animation = "fadeOut 0.3s ease forwards"; setTimeout(() => el.remove(), 300); }
+};

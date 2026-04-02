@@ -119,5 +119,19 @@
   </div>
 </div>
 
+<div class="modal-backdrop" id="passwordModalBackdrop"></div>
+<div class="modal" id="passwordModal">
+  <div class="modal-title">🔒 password required</div>
+  <div class="auth-field">
+    <label class="auth-label">room password</label>
+    <input class="auth-input" id="passwordModalInput" type="password" placeholder="enter password..." onkeydown="if(event.key==='Enter')submitRoomPassword()" />
+  </div>
+  <div class="auth-error" id="passwordModalError"></div>
+  <div style="display:flex;gap:10px;margin-top:16px">
+    <button class="auth-submit" onclick="submitRoomPassword()" style="flex:1">enter</button>
+    <button class="profile-signout" onclick="closePasswordModal()" style="flex:1">cancel</button>
+  </div>
+</div>
+
 </body>
 </html>
